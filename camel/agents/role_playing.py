@@ -45,7 +45,7 @@ class RolePlaying:
         with_critic_in_the_loop (bool, optional): Whether to include a critic
             in the loop. (default: :obj:`False`)
         model_type (ModelType, optional): The type of backend model to use.
-            (default: :obj:`ModelType.GPT_3_5_TURBO`)
+            (default: :obj:`ModelType.GPT_4O_MINI`)
         task_type (TaskType, optional): The type of task to perform.
             (default: :obj:`TaskType.AI_SOCIETY`)
         assistant_agent_kwargs (Dict, optional): Additional arguments to pass
@@ -80,7 +80,9 @@ class RolePlaying:
             with_task_planner: bool = False,
             with_critic_in_the_loop: bool = False,
             critic_criteria: Optional[str] = None,
-            model_type: ModelType = ModelType.GPT_3_5_TURBO,
+            model_type: ModelType = ModelType.GPT_4O_MINI,
+            assistant_model_type: Optional[ModelType] = None,
+            user_model_type: Optional[ModelType] = None,
             task_type: TaskType = TaskType.AI_SOCIETY,
             assistant_agent_kwargs: Optional[Dict] = None,
             user_agent_kwargs: Optional[Dict] = None,
@@ -151,9 +153,9 @@ class RolePlaying:
                                           meta_dict=sys_msg_meta_dicts[1],
                                           content=user_role_prompt.format(**sys_msg_meta_dicts[1]))
 
-        self.assistant_agent: ChatAgent = ChatAgent(self.assistant_sys_msg, memory, model_type,
+        self.assistant_agent: ChatAgent = ChatAgent(self.assistant_sys_msg, memory, assistant_model_type or model_type,
                                                     **(assistant_agent_kwargs or {}), )
-        self.user_agent: ChatAgent = ChatAgent(self.user_sys_msg,memory, model_type, **(user_agent_kwargs or {}), )
+        self.user_agent: ChatAgent = ChatAgent(self.user_sys_msg,memory, user_model_type or model_type, **(user_agent_kwargs or {}), )
 
         if with_critic_in_the_loop:
             raise ValueError("with_critic_in_the_loop not available")

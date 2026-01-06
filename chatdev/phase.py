@@ -19,7 +19,8 @@ class Phase(ABC):
                  role_prompts,
                  phase_name,
                  model_type,
-                 log_filepath):
+                 log_filepath,
+                 role_model_config=None):
         """
 
         Args:
@@ -43,6 +44,18 @@ class Phase(ABC):
         self.reflection_prompt = """Here is a conversation between two roles: {conversations} {question}"""
         self.model_type = model_type
         self.log_filepath = log_filepath
+        self.role_model_config = role_model_config or {}
+
+    def get_model_type(self, role_name):
+        if role_name in self.role_model_config:
+            model_name = self.role_model_config[role_name]
+            try:
+                return ModelType[model_name]
+            except KeyError:
+                print(f"Warning: Model type {model_name} for role {role_name} not found in ModelType enum. Using default.")
+                return self.model_type
+        return self.model_type
+
 
     @log_arguments
     def chatting(
@@ -58,7 +71,7 @@ class Phase(ABC):
             task_type=TaskType.CHATDEV,
             need_reflect=False,
             with_task_specify=False,
-            model_type=ModelType.GPT_3_5_TURBO,
+            model_type=ModelType.GPT_4O_MINI,
             memory=None,
             placeholders=None,
             chat_turn_limit=10
@@ -94,6 +107,9 @@ class Phase(ABC):
         if not chat_env.exist_employee(user_role_name):
             raise ValueError(f"{user_role_name} not recruited in ChatEnv.")
 
+        assistant_model_type = self.get_model_type(assistant_role_name)
+        user_model_type = self.get_model_type(user_role_name)
+
         # init role play
         role_play_session = RolePlaying(
             assistant_role_name=assistant_role_name,
@@ -105,6 +121,8 @@ class Phase(ABC):
             with_task_specify=with_task_specify,
             memory=memory,
             model_type=model_type,
+            assistant_model_type=assistant_model_type,
+            user_model_type=user_model_type,
             background_prompt=chat_env.config.background_prompt
         )
 

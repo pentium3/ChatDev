@@ -67,6 +67,7 @@ def calc_max_token(messages, model):
         "gpt-4-32k": 32768,
         "gpt-4o": 4096, #100000
         "gpt-4o-mini": 16384, #100000
+        # "local": 128000,
     }
     num_max_token = num_max_token_map[model]
     num_max_completion_tokens = num_max_token - num_prompt_tokens
@@ -140,9 +141,10 @@ class OpenAIModel(ModelBackend):
             "gpt-4-32k": 32768,
             "gpt-4o": 4096, #100000
             "gpt-4o-mini": 16384, #100000
+            # "local": 128000,
         }
         response = client.chat.completions.create(messages = messages,
-        model = "gpt-3.5-turbo-16k",
+        model = self.model_type,
         temperature = 0.2,
         top_p = 1.0,
         n = 1,

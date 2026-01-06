@@ -76,7 +76,7 @@ class ChatAgent(BaseAgent):
         system_message (SystemMessage): The system message for the chat agent.
         with_memory(bool): The memory setting of the chat agent.
         model (ModelType, optional): The LLM model to use for generating
-            responses. (default :obj:`ModelType.GPT_3_5_TURBO`)
+            responses. (default :obj:`ModelType.GPT_4O_MINI`)
         model_config (Any, optional): Configuration options for the LLM model.
             (default: :obj:`None`)
         message_window_size (int, optional): The maximum number of previous
@@ -96,7 +96,7 @@ class ChatAgent(BaseAgent):
         self.system_message: SystemMessage = system_message
         self.role_name: str = system_message.role_name
         self.role_type: RoleType = system_message.role_type
-        self.model: ModelType = (model if model is not None else ModelType.GPT_3_5_TURBO)
+        self.model: ModelType = (model if model is not None else ModelType.GPT_4O_MINI)
         self.model_config: ChatGPTConfig = model_config or ChatGPTConfig()
         self.model_token_limit: int = get_model_token_limit(self.model)
         self.message_window_size: Optional[int] = message_window_size
@@ -240,11 +240,17 @@ class ChatAgent(BaseAgent):
             if openai_new_api:
                 if not isinstance(response, ChatCompletion):
                     raise RuntimeError("OpenAI returned unexpected struct")
-                output_messages = [
-                    ChatMessage(role_name=self.role_name, role_type=self.role_type,
-                                meta_dict=dict(), **dict(choice.message))
-                    for choice in response.choices
-                ]
+                output_messages = []
+                for choice in response.choices:
+                    choice_dict = dict(choice.message)
+                    # Filter out unexpected keys like 'annotations' if they exist
+                    valid_keys = ChatMessage.__annotations__.keys()
+                    filtered_dict = {k: v for k, v in choice_dict.items() if k in valid_keys}
+                    # Also include required fields not in choice.message
+                    output_messages.append(
+                        ChatMessage(role_name=self.role_name, role_type=self.role_type,
+                                    meta_dict=dict(), **filtered_dict)
+                    )
                 info = self.get_info(
                     response.id,
                     response.usage,

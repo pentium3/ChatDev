@@ -28,7 +28,7 @@ class ChatChain:
                  task_prompt: str = None,
                  project_name: str = None,
                  org_name: str = None,
-                 model_type: ModelType = ModelType.GPT_3_5_TURBO,
+                 model_type: ModelType = ModelType.GPT_4O_MINI,
                  code_path: str = None) -> None:
         """
 
@@ -56,6 +56,14 @@ class ChatChain:
             self.config_phase = json.load(file)
         with open(self.config_role_path, 'r', encoding="utf8") as file:
             self.config_role = json.load(file)
+
+        # load RoleModelConfig.json
+        self.config_role_model_path = os.path.join(os.path.dirname(self.config_role_path), "RoleModelConfig.json")
+        if os.path.exists(self.config_role_model_path):
+            with open(self.config_role_model_path, 'r', encoding="utf8") as file:
+                self.config_role_model = json.load(file)
+        else:
+            self.config_role_model = {}
 
         # init chatchain config and recruitments
         self.chain = self.config["chain"]
@@ -106,7 +114,8 @@ class ChatChain:
                                          role_prompts=self.role_prompts,
                                          phase_name=phase,
                                          model_type=self.model_type,
-                                         log_filepath=self.log_filepath)
+                                         log_filepath=self.log_filepath,
+                                         role_model_config=self.config_role_model)
             self.phases[phase] = phase_instance
 
     def make_recruitment(self):
@@ -213,6 +222,8 @@ class ChatChain:
         shutil.copy(self.config_path, software_path)
         shutil.copy(self.config_phase_path, software_path)
         shutil.copy(self.config_role_path, software_path)
+        if os.path.exists(self.config_role_model_path):
+             shutil.copy(self.config_role_model_path, software_path)
 
         # copy code files to software path in incremental_develop mode
         if check_bool(self.config["incremental_develop"]):
@@ -238,6 +249,7 @@ class ChatChain:
         preprocess_msg += "**config_path**: {}\n\n".format(self.config_path)
         preprocess_msg += "**config_phase_path**: {}\n\n".format(self.config_phase_path)
         preprocess_msg += "**config_role_path**: {}\n\n".format(self.config_role_path)
+        preprocess_msg += "**config_role_model_path**: {}\n\n".format(self.config_role_model_path)
         preprocess_msg += "**task_prompt**: {}\n\n".format(self.task_prompt_raw)
         preprocess_msg += "**project_name**: {}\n\n".format(self.project_name)
         preprocess_msg += "**Log File**: {}\n\n".format(self.log_filepath)
