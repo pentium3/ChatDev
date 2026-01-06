@@ -45,7 +45,7 @@ class RoleType(Enum):
 
 class ModelType(Enum):
     GPT_3_5_TURBO = "gpt-3.5-turbo-16k-0613"
-    GPT_3_5_TURBO_NEW = "gpt-3.5-turbo-16k"
+    GPT_3_5_TURBO_NEW = "gpt-3.5-turbo-0125"
     GPT_4 = "gpt-4"
     GPT_4_32k = "gpt-4-32k"
     GPT_4_TURBO = "gpt-4-turbo"
@@ -58,7 +58,7 @@ class ModelType(Enum):
 
     @property
     def value_for_tiktoken(self):
-        return self.value if self.name != "STUB" else "gpt-3.5-turbo-16k-0613"
+        return self.value if self.name != "STUB" else "gpt-4o-mini"
 
 
 class PhaseType(Enum):

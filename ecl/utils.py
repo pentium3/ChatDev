@@ -16,7 +16,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential
 )
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if 'BASE_URL' in os.environ:
     BASE_URL = os.environ['BASE_URL']
 else:
@@ -57,21 +57,36 @@ def calc_max_token(messages, model):
     gap_between_send_receive = 50
     num_prompt_tokens += gap_between_send_receive
 
-    num_max_token_map = {
+    # Context windows (roughly). Conservative defaults for unknown models.
+    context_window_map = {
         "gpt-3.5-turbo": 4096,
-        "gpt-3.5-turbo-16k": 16384,
         "gpt-3.5-turbo-0613": 4096,
+        "gpt-3.5-turbo-0125": 16384,
         "gpt-3.5-turbo-16k-0613": 16384,
         "gpt-4": 8192,
         "gpt-4-0613": 8192,
         "gpt-4-32k": 32768,
-        "gpt-4o": 4096, #100000
-        "gpt-4o-mini": 16384, #100000
-        # "local": 128000,
+        "gpt-4o": 128000,
+        "gpt-4o-mini": 128000,
     }
-    num_max_token = num_max_token_map[model]
-    num_max_completion_tokens = num_max_token - num_prompt_tokens
-    return num_max_completion_tokens
+    # Completion caps (output tokens). This is what `max_tokens` must obey.
+    max_output_map = {
+        "gpt-3.5-turbo": 4096,
+        "gpt-3.5-turbo-0613": 4096,
+        "gpt-3.5-turbo-0125": 4096,
+        "gpt-3.5-turbo-16k-0613": 4096,
+        "gpt-4": 4096,
+        "gpt-4-0613": 4096,
+        "gpt-4-32k": 4096,
+        "gpt-4o": 16384,
+        "gpt-4o-mini": 16384,
+    }
+
+    context_window = context_window_map.get(model, 8192)
+    max_output = max_output_map.get(model, 4096)
+    available_by_context = max(0, context_window - num_prompt_tokens)
+    safe = min(int(max_output), int(available_by_context))
+    return max(1, safe)
 
 
 class ModelBackend(ABC):
@@ -113,6 +128,11 @@ class OpenAIModel(ModelBackend):
 
     @retry(wait=wait_exponential(min=5, max=60), stop=stop_after_attempt(5))
     def run(self, messages) :
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set in the environment. "
+                "Please export OPENAI_API_KEY before running."
+            )
         if BASE_URL:
             client = openai.OpenAI(
                 api_key=OPENAI_API_KEY,
@@ -131,20 +151,40 @@ class OpenAIModel(ModelBackend):
         gap_between_send_receive = 15 * len(messages)
         num_prompt_tokens += gap_between_send_receive
 
-        num_max_token_map = {
+        # Context windows (roughly). Conservative defaults for unknown models.
+        context_window_map = {
             "gpt-3.5-turbo": 4096,
-            "gpt-3.5-turbo-16k": 16384,
             "gpt-3.5-turbo-0613": 4096,
+            "gpt-3.5-turbo-0125": 16384,
             "gpt-3.5-turbo-16k-0613": 16384,
             "gpt-4": 8192,
             "gpt-4-0613": 8192,
             "gpt-4-32k": 32768,
-            "gpt-4o": 4096, #100000
-            "gpt-4o-mini": 16384, #100000
-            # "local": 128000,
+            "gpt-4o": 128000,
+            "gpt-4o-mini": 128000,
         }
+        # Completion caps (output tokens). This is what `max_tokens` must obey.
+        max_output_map = {
+            "gpt-3.5-turbo": 4096,
+            "gpt-3.5-turbo-0613": 4096,
+            "gpt-3.5-turbo-0125": 4096,
+            "gpt-3.5-turbo-16k-0613": 4096,
+            "gpt-4": 4096,
+            "gpt-4-0613": 4096,
+            "gpt-4-32k": 4096,
+            "gpt-4o": 16384,
+            "gpt-4o-mini": 16384,
+        }
+
+        context_window = context_window_map.get(self.model_type, 8192)
+        max_output = max_output_map.get(self.model_type, 4096)
+        available_by_context = max(0, context_window - num_prompt_tokens)
+        safe_max_tokens = min(int(max_output), int(available_by_context))
+        safe_max_tokens = max(1, safe_max_tokens)
+
         response = client.chat.completions.create(messages = messages,
         model = self.model_type,
+        max_tokens = safe_max_tokens,
         temperature = 0.2,
         top_p = 1.0,
         n = 1,
@@ -155,11 +195,7 @@ class OpenAIModel(ModelBackend):
         ).model_dump()
         response_text = response['choices'][0]['message']['content']
 
-
-
-        num_max_token = num_max_token_map[self.model_type]
-        num_max_completion_tokens = num_max_token - num_prompt_tokens
-        self.model_config_dict['max_tokens'] = num_max_completion_tokens
+        self.model_config_dict["max_tokens"] = safe_max_tokens
         log_and_print_online(
             "InstructionStar generation:\n**[OpenAI_Usage_Info Receive]**\nprompt_tokens: {}\ncompletion_tokens: {}\ntotal_tokens: {}\n".format(
                 response["usage"]["prompt_tokens"], response["usage"]["completion_tokens"],

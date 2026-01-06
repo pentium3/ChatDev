@@ -30,7 +30,7 @@ except ImportError:
 
 import os
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if 'BASE_URL' in os.environ:
     BASE_URL = os.environ['BASE_URL']
 else:
@@ -63,7 +63,68 @@ class OpenAIModel(ModelBackend):
         self.model_type = model_type
         self.model_config_dict = model_config_dict
 
+    @staticmethod
+    def _get_token_limits(model_name: str) -> tuple[int, int]:
+        """Returns (context_window_tokens, max_output_tokens) for a model.
+
+        Notes:
+        - OpenAI's `max_tokens` is a *completion* cap, not the total context.
+        - The completion cap can be much smaller than the context window.
+        """
+        # Context windows (roughly). Keep conservative defaults for unknowns.
+        context_window_map: Dict[str, int] = {
+            "gpt-3.5-turbo": 4096,
+            "gpt-3.5-turbo-0613": 4096,
+            "gpt-3.5-turbo-0125": 16384,
+            "gpt-3.5-turbo-16k-0613": 16384,
+            "gpt-4": 8192,
+            "gpt-4-0613": 8192,
+            "gpt-4-32k": 32768,
+            "gpt-4-turbo": 128000,
+            "gpt-4o": 128000,
+            "gpt-4o-mini": 128000,
+            "local": 128000,
+        }
+        # Completion limits (output tokens). These are the critical caps for `max_tokens`.
+        max_output_map: Dict[str, int] = {
+            "gpt-3.5-turbo": 4096,
+            "gpt-3.5-turbo-0613": 4096,
+            "gpt-3.5-turbo-0125": 4096,
+            "gpt-3.5-turbo-16k-0613": 4096,
+            "gpt-4": 4096,
+            "gpt-4-0613": 4096,
+            "gpt-4-32k": 4096,
+            "gpt-4-turbo": 4096,
+            "gpt-4o": 16384,
+            "gpt-4o-mini": 16384,
+            "local": 16384,
+        }
+        return (
+            context_window_map.get(model_name, 8192),
+            max_output_map.get(model_name, 4096),
+        )
+
+    def _compute_max_tokens(self, *, model_name: str, num_prompt_tokens: int) -> int:
+        """Compute a safe `max_tokens` (completion cap) for the given prompt size."""
+        context_window, max_output = self._get_token_limits(model_name)
+        available_by_context = max(0, context_window - num_prompt_tokens)
+
+        requested = self.model_config_dict.get("max_tokens", None)
+        # If user didn't request a specific cap, default to model max output.
+        if requested is None:
+            requested = max_output
+
+        # Clamp by model output cap and remaining context budget.
+        safe = min(int(requested), int(max_output), int(available_by_context))
+        # Always request at least 1 token to avoid invalid/degenerate requests.
+        return max(1, safe)
+
     def run(self, *args, **kwargs):
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set in the environment. "
+                "Please export OPENAI_API_KEY before running ChatDev."
+            )
         string = "\n".join([message["content"] for message in kwargs["messages"]])
         encoding = tiktoken.encoding_for_model(self.model_type.value)
         num_prompt_tokens = len(encoding.encode(string))
@@ -82,22 +143,10 @@ class OpenAIModel(ModelBackend):
                     api_key=OPENAI_API_KEY
                 )
 
-            num_max_token_map = {
-                "gpt-3.5-turbo": 4096,
-                "gpt-3.5-turbo-16k": 16384,
-                "gpt-3.5-turbo-0613": 4096,
-                "gpt-3.5-turbo-16k-0613": 16384,
-                "gpt-4": 8192,
-                "gpt-4-0613": 8192,
-                "gpt-4-32k": 32768,
-                "gpt-4-turbo": 100000,
-                "gpt-4o": 4096, #100000
-                "gpt-4o-mini": 16384, #100000
-                "local": 128000,
-            }
-            num_max_token = num_max_token_map[self.model_type.value]
-            num_max_completion_tokens = num_max_token - num_prompt_tokens
-            self.model_config_dict['max_tokens'] = num_max_completion_tokens
+            self.model_config_dict["max_tokens"] = self._compute_max_tokens(
+                model_name=self.model_type.value,
+                num_prompt_tokens=num_prompt_tokens,
+            )
 
             response = client.chat.completions.create(*args, **kwargs, model=self.model_type.value,
                                                       **self.model_config_dict)
@@ -116,22 +165,10 @@ class OpenAIModel(ModelBackend):
                 raise RuntimeError("Unexpected return from OpenAI API")
             return response
         else:
-            num_max_token_map = {
-                "gpt-3.5-turbo": 4096,
-                "gpt-3.5-turbo-16k": 16384,
-                "gpt-3.5-turbo-0613": 4096,
-                "gpt-3.5-turbo-16k-0613": 16384,
-                "gpt-4": 8192,
-                "gpt-4-0613": 8192,
-                "gpt-4-32k": 32768,
-                "gpt-4-turbo": 100000,
-                "gpt-4o": 4096, #100000
-                "gpt-4o-mini": 16384, #100000
-                "local": 128000,
-            }
-            num_max_token = num_max_token_map[self.model_type.value]
-            num_max_completion_tokens = num_max_token - num_prompt_tokens
-            self.model_config_dict['max_tokens'] = num_max_completion_tokens
+            self.model_config_dict["max_tokens"] = self._compute_max_tokens(
+                model_name=self.model_type.value,
+                num_prompt_tokens=num_prompt_tokens,
+            )
 
             response = openai.ChatCompletion.create(*args, **kwargs, model=self.model_type.value,
                                                     **self.model_config_dict)
@@ -179,7 +216,7 @@ class ModelFactory:
 
     @staticmethod
     def create(model_type: ModelType, model_config_dict: Dict) -> ModelBackend:
-        default_model_type = ModelType.GPT_3_5_TURBO
+        default_model_type = ModelType.GPT_4O_MINI
 
         if model_type in {
             ModelType.GPT_3_5_TURBO,
